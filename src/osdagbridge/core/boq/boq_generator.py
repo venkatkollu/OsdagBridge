@@ -84,6 +84,12 @@ def calculate_material_quantities(inputs: dict, outputs: dict) -> dict:
         "shear_studs_wt_single": "N.A.",
         "shear_studs_wt_total": "N.A.",
 
+        "end_diaphragm_vol_formula": r"\placeholder{Area $\times$ Length}",
+        "end_diaphragm_qty": "N.A.",
+        "end_diaphragm_vol_total": "N.A.",
+        "end_diaphragm_wt_single": "N.A.",
+        "end_diaphragm_wt_total": "N.A.",
+
         "crash_barrier_vol_formula": r"\placeholder{Area $\times$ Length}",
         "crash_barrier_qty": "N.A.",
         "crash_barrier_vol_total": "N.A.",
@@ -329,6 +335,42 @@ def calculate_material_quantities(inputs: dict, outputs: dict) -> dict:
                 quantities[f"{prefix}_vol_total"] = "N.A."
                 quantities[f"{prefix}_wt_single"] = "N.A."
                 quantities[f"{prefix}_wt_total"] = "N.A."
+
+        # 5d. End Diaphragms (Cu.m) and Weight (MT)
+        #
+        # End diaphragms are transverse frames at both supports, one per girder
+        # bay. Each frame is a cross-braced panel: two diagonals plus a top and
+        # a bottom chord. No separate diaphragm section is carried in the
+        # output dict, so the transverse bracing section is used for every
+        # member; this is stated in the Chapter 7 note.
+        if bracing_area > 0.0 and bracing_len > 0.0 and spacing > 0.0 and n_girders > 1:
+            ed_frames = 2 * (n_girders - 1)          # both ends, one per bay
+            ed_diags = ed_frames * 2                 # X-bracing: two diagonals
+            ed_chords = ed_frames * 2                # top + bottom chord
+
+            ed_diag_vol = ed_diags * bracing_area * bracing_len
+            ed_chord_vol = ed_chords * bracing_area * spacing
+            ed_vol_total = ed_diag_vol + ed_chord_vol
+
+            ed_wt_total = ed_vol_total * 7.85
+            ed_wt_single = ed_wt_total / ed_frames
+
+            quantities["end_diaphragm_vol_formula"] = (
+                f"${ed_diags} \\times {bracing_area:.5f}\\text{{ m}}^2 "
+                f"\\times {bracing_len:.2f}\\text{{ m}} + {ed_chords} "
+                f"\\times {bracing_area:.5f}\\text{{ m}}^2 "
+                f"\\times {spacing:.2f}\\text{{ m}} = {ed_vol_total:.5f}\\text{{ m}}^3$"
+            )
+            quantities["end_diaphragm_qty"] = str(ed_frames)
+            quantities["end_diaphragm_vol_total"] = f"{ed_vol_total:.2f}"
+            quantities["end_diaphragm_wt_single"] = f"{ed_wt_single:.2f}"
+            quantities["end_diaphragm_wt_total"] = f"{ed_wt_total:.2f}"
+        else:
+            quantities["end_diaphragm_vol_formula"] = "N.A."
+            quantities["end_diaphragm_qty"] = "N.A."
+            quantities["end_diaphragm_vol_total"] = "N.A."
+            quantities["end_diaphragm_wt_single"] = "N.A."
+            quantities["end_diaphragm_wt_total"] = "N.A."
 
         # 6. Crash Barrier (Cu.m) and Weight (MT)
         KEY_CB_AREA = "typical_section.crash_barrier.area"

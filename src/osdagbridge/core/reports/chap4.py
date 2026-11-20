@@ -6,6 +6,7 @@ from osdagbridge.core.utils.common import (
     KEY_SD_DEFL_TOTAL,
 )
 from osdagbridge.core.reports.report_utils import _tex, _fig_embed
+from osdagbridge.core.reports import theme as _theme
 
 if TYPE_CHECKING:
     from .report_generator import ReportDataBridge
@@ -49,6 +50,13 @@ def ch4_analysis(asum, fig_paths, bridge: "ReportDataBridge", span_m: float):
         for lc in all_lcs
     ) if all_lcs else r"--- & --- & --- & --- & --- & --- & --- & --- & --- \\[6pt]"
 
+    rxn_body = ("\n\\hline\n").join(
+        _tex(lc) + r" & "
+        + _fmt((rxn_summary.get(lc) or {}).get('left_kN'))  + r" & "
+        + _fmt((rxn_summary.get(lc) or {}).get('right_kN')) + r" \\[6pt]"
+        for lc in all_lcs
+    ) if all_lcs else r"--- & --- & --- \\[6pt]"
+
     _span_m         = float(bridge.input_dict.get(KEY_SPAN, 0) or 0)
     _allow_live_mm  = _span_m * 1000.0 / 800.0
     _allow_total_mm = _span_m * 1000.0 / 600.0
@@ -80,29 +88,28 @@ def ch4_analysis(asum, fig_paths, bridge: "ReportDataBridge", span_m: float):
 
 A grillage model was used for structural analysis. The deck is idealized as a grid of elastic beam elements --- longitudinal members represent the composite steel girders with effective slab, and transverse members represent the slab or cross frames. This section summarizes the critical output from that analysis.
 
-\vspace{1em}
+\sectiongap
 \begingroup
 \footnotesize
-\setlength{\tabcolsep}{3pt}
-\renewcommand{\arraystretch}{1.25}
+""" + _theme.table_padding(colsep=_theme.TIGHT_COLSEP, arraystretch="1.2") + r"""
 
 \begin{longtable}{|
->{\centering\arraybackslash}p{3.1cm}|
+>{\centering\arraybackslash}p{2.95cm}|
 >{\centering\arraybackslash}p{1.7cm}|
->{\centering\arraybackslash}p{1.2cm}|
+>{\centering\arraybackslash}p{1.35cm}|
 >{\centering\arraybackslash}p{1.3cm}|
 >{\centering\arraybackslash}p{1.7cm}|
->{\centering\arraybackslash}p{1.2cm}|
+>{\centering\arraybackslash}p{1.35cm}|
 >{\centering\arraybackslash}p{1.3cm}|
 >{\centering\arraybackslash}p{1.6cm}|
 >{\centering\arraybackslash}p{1.6cm}|}
 
 \caption{\textbf{Summary of Maximum Demands}}\\
 \hline
-\multirow{2}{*}{\makecell{\textbf{Load}\\\textbf{Case/}\\\textbf{Comb.}}}
+\multirow{2}{*}{\makecell{\textbf{Load}\\\textbf{Case/Comb.}}}
 & \multicolumn{3}{c|}{\textbf{Bending Moment}}
 & \multicolumn{3}{c|}{\textbf{Shear Force}}
-& \multicolumn{2}{c|}{\textbf{Reaction at Supports}}\\
+& \multicolumn{2}{c|}{\makecell{\textbf{Reaction}\\\textbf{at Supports}}}\\
 \cline{2-9}
 
 & \makecell{\textbf{Max}\\\textbf{(kNm)}}
@@ -117,10 +124,10 @@ A grillage model was used for structural analysis. The deck is idealized as a gr
 \endfirsthead
 
 \hline
-\multirow{2}{*}{\makecell{\textbf{Load}\\\textbf{Case/}\\\textbf{Comb.}}}
+\multirow{2}{*}{\makecell{\textbf{Load}\\\textbf{Case/Comb.}}}
 & \multicolumn{3}{c|}{\textbf{Bending Moment}}
 & \multicolumn{3}{c|}{\textbf{Shear Force}}
-& \multicolumn{2}{c|}{\textbf{Reaction at Supports}}\\
+& \multicolumn{2}{c|}{\makecell{\textbf{Reaction}\\\textbf{at Supports}}}\\
 \cline{2-9}
 
 & \makecell{\textbf{Max}\\\textbf{(kNm)}}
@@ -140,21 +147,16 @@ A grillage model was used for structural analysis. The deck is idealized as a gr
 \end{longtable}
 \endgroup
 
-\vspace{1em}
-\begin{longtable}{|>{\centering\arraybackslash}p{5.2cm}|>{\centering\arraybackslash}p{5.2cm}|>{\centering\arraybackslash}p{5.2cm}|}
-\caption{\textbf{Reactions at Supports}}
-\hline
-\textbf{Load Case} & \textbf{Left Support (kN)} & \textbf{Right Support (kN)} \\[6pt]
-\hline
- & """ + '' + r""" & """ + '' + r""" \\[6pt]
-\hline
- & """ + '' + r""" & """ + '' + r""" \\[6pt]
-\hline
- & """ + '' + r""" & """ + '' + r""" \\[6pt]
-\hline
-\end{longtable}
+\sectiongap
+""" + _theme.longtable(
+        r"|C{5.2cm}|C{5.2cm}|C{5.2cm}|",
+        [r"\textbf{Load Case} & \textbf{Left Support (kN)} & \textbf{Right Support (kN)} \\[6pt]"],
+        rxn_body.split("\n\\hline\n"),
+        caption=r"\textbf{Reactions at Supports}",
+        note="Support reactions from the grillage analysis for the governing load cases.",
+    ) + r"""
 
-\vspace{1em}
+\sectiongap
 \begin{longtable}{|L{7cm}|p{8.5cm}|}
 \caption{\textbf{Deflection Summary (Live Load \& Total Load)}}
 \hline
@@ -174,7 +176,7 @@ A grillage model was used for structural analysis. The deck is idealized as a gr
 \hline
 \end{longtable}
 
-\vspace{1em}
+\sectiongap
 \noindent
 """ + _fig_embed(fig_paths.get('bm_envelope'), 'Bending Moment Envelope (Envelope ULS): Max/min BM along span. X-axis: distance from left support (m). Y-axis: Bending Moment (kN-m).', width=r'0.75\textwidth') + r"""
 """ + _fig_embed(fig_paths.get('sf_envelope'), 'Shear Force Envelope (Envelope ULS): Max/min SF along span. X-axis: distance from left support (m). Y-axis: Shear Force (kN).', width=r'0.75\textwidth') + r"""

@@ -1,0 +1,341 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=2cm]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+% Allow long identifiers in \texttt to hyphenate instead of running into
+% the right margin.
+\usepackage[htt]{hyphenat}
+\setlength{\emergencystretch}{3em}
+
+\definecolor{osdag}{HTML}{116A5B}
+\hypersetup{colorlinks=true, linkcolor=osdag, urlcolor=osdag}
+\titleformat{\section}{\large\bfseries\color{osdag}}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.5em}{}
+\setlist{itemsep=2pt,topsep=3pt,parsep=0pt}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small OsdagBridge --- LaTeX Report Generator Refactoring}
+\fancyhead[R]{\small FOSSEE Winter Internship 2026}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+\title{\vspace{-1.2cm}\textbf{Technical Changes Document}\\[2pt]
+\large OsdagBridge LaTeX Report Generator --- Refactoring \& Enhancements}
+\author{Screening Task Submission --- FOSSEE Winter Internship 2026}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-0.6cm}
+
+\section{Objective and approach}
+
+The OsdagBridge report generator produces a multi-chapter structural design report
+(design basis, loads, analysis, member checks, BOQ) by assembling LaTeX source from
+Python string builders. The task asked for six improvements: repeated table headers,
+layout/footer fixes, cleaner load and geometry tables, a utilization-ratio chart,
+material-quantity charts, and a centralized formatting module.
+
+All six were implemented on the production code path
+(\code{build\_report\_payload()} $\rightarrow$ \code{generate\_report()}), not on a
+side branch of logic. Because the design engine depends on \code{openseespy}, which
+has no wheel for the Python 3.14 interpreter available on this machine, the demo
+PDFs are produced by an inert OpenSees stub
+(\path{tools/report_demo/generate_demo_report.py}) and a fixed 30\,m four-girder
+dataset (\path{tools/report_demo/demo_data.py}). The same payload drives both the
+before and after PDFs, so every difference between them is attributable to the code
+changes and not to different input data.
+
+The \emph{before} PDF is generated from an untouched checkout of commit
+\code{d74f56d} (\code{git worktree}), using the identical dataset.
+
+\section{Files changed}
+
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{6.0cm}>{\raggedright\arraybackslash}p{9.8cm}@{}}
+\toprule
+\textbf{File} & \textbf{Change} \\
+\midrule
+\endhead
+\code{reports/theme.py} & \textbf{New.} Single source of truth: palette, page
+geometry, header/footer, table style, \code{preamble()}, \code{longtable()},
+\code{figure()}, header-repetition and page-break normalisation passes,
+\code{apply\_chart\_theme()}. \\
+\code{reports/charts.py} & \textbf{New.} Matplotlib generators for the
+utilization-ratio chart and the material-quantity charts. \\
+\code{reports/report\_generator.py} & Preamble delegated to \code{theme.preamble()};
+legacy preamble removed; document-level post-processing applied; chart asset
+directory wired into Chapters 5 and 7. \\
+\code{reports/chap2.py}, \code{chap4.py}, \code{chap8.py} & Hard-coded table
+padding and row-stretch commands removed; wide tables now call
+\code{theme.table\_padding()}. \\
+\code{reports/chap3.py} & Live-load table split into a vehicle table and a separate
+footway table, with explicit units and UI-selected vehicles. \\
+\code{reports/chap5.py} & Utilization ratios collected while the check tables are
+built and rendered as a summary chart in Section~5.5. \\
+\code{reports/chap7.py} & Rewritten on \code{theme.longtable()}; material-quantity
+charts appended to the chapter. \\
+\code{tools/report\_demo/} & \textbf{New.} Headless runner and demo dataset used to
+produce the submitted PDFs. \\
+\bottomrule
+\end{longtable}
+
+\section{1. Repeated table headers across page breaks}
+
+\textbf{Before.} Of the 49 longtables in the report, only 2 declared
+\code{\textbackslash endhead}; a table that crossed a page boundary continued
+without any column headings, so values on the new page could not be mapped to
+columns.
+
+\textbf{After.} All 51 longtables now carry a head block, and continuation pages
+repeat the header plus the caption with a ``(continued)'' suffix.
+
+Two mechanisms were used deliberately:
+\begin{itemize}
+  \item \code{theme.longtable()} emits \code{\textbackslash endfirsthead},
+        \code{\textbackslash endhead} and \code{\textbackslash endlastfoot} blocks
+        for every table it builds (Chapters 3, 5, 7).
+  \item \code{theme.repeat\_longtable\_headers()} is a document-level pass applied in
+        \code{generate\_report()}. It parses each \code{\textbackslash begin\{longtable\}}
+        block, extracts the column specifier and trailing rule, and injects the head
+        blocks after the first \code{\textbackslash endfirsthead} or
+        \code{\textbackslash endhead}. This fixes the pre-existing hand-written tables
+        in Chapters 2, 4, 6 and 8 without touching each of them individually.
+\end{itemize}
+
+\section{2. Page geometry, vertical spacing and footer overlap}
+
+\textbf{Before.} The report used \code{geometry} with 1\,in margins, a 15\,pt
+\code{headheight} (LaTeX warned that it was too small) and no page-bottom guard
+before tables. Table 2.x and 5.1 could start with two rows left at the bottom of a
+page, and a group label centred with \code{\textbackslash multirow} could be pushed
+into the footer margin --- the reported ``G4 bleeding into the footer'' defect.
+
+\textbf{After.}
+\begin{itemize}
+  \item Geometry is defined once in \code{theme.PageGeometry} (A4, 2\,cm margins,
+        18\,pt head height, \code{includeheadfoot}) and emitted by
+        \code{theme.preamble()}.
+  \item \code{theme.TableStyle} carries \code{needspace\_baselines = 7}; the global guards
+        were removed (they produced a stray ``(continued)'' head at the page bottom).
+  \item Cell padding is a theme constant (\code{tabcolsep = 3.0pt}); unusually wide
+        tables request \code{theme.table\_padding(colsep=TIGHT\_COLSEP)} instead of
+        hard-coding their own values.
+  \item \code{theme.flatten\_breakable\_multirows()} replaces each
+        \code{\textbackslash multirow} group-label cell with a plain
+        \code{\textbackslash makecell} on the group's first row. The
+        existing \code{\textbackslash cline} rules preserve the visual grouping, but
+        no label box can any longer be vertically centred across a page break, so no
+        label can be drawn below the bottom margin. This is applied centrally, so it
+        also protects tables added later.
+\end{itemize}
+
+\section{3. Load and geometry tables}
+
+\textbf{Before.} Vehicular live load, impact factor and footway loading were merged
+into a single Live Loads table with mixed units in one column; the footway
+contribution was not separately verifiable.
+
+\textbf{After.} Chapter 3 now contains:
+\begin{itemize}
+  \item Table 3.3 --- \emph{Vehicular Live Load (IRC 6)}, one row per vehicle selected
+        in the UI (Class A, Class 70R, etc.), with impact factor and IRC reference;
+  \item Table 3.4 --- \emph{Governing Longitudinal Load Effects}, with braking and
+        centrifugal forces and their IRC references;
+  \item Table 3.5 --- \emph{Footway Live Load}, with its own value/unit columns and
+        the IRC clause reference for each parameter;
+  \item Table 3.6 --- wind load, unchanged in content but rebuilt on the theme table
+        builder.
+\end{itemize}
+Units are now a dedicated column in both tables, so a number is never ambiguous.
+Chapter 3 reads the selected vehicles from the same payload keys the GUI writes, so
+the table always matches what the user ticked in the Loading tab.
+
+\section{4. Utilization-ratio chart}
+
+While the detailed check tables are generated, \code{chap5.py} records the numeric
+demand/capacity ratio for each check into \code{\_ur\_values}. Section 5.5
+(\emph{Overall Design Check Summary}) then renders a four-category bar chart ---
+Steel Plate Girders, Concrete Deck Slab, Cross Bracing, End Diaphragms --- with:
+\begin{itemize}
+  \item UR on the vertical axis and a dashed red line at UR = 1.0 (the limit state);
+  \item value labels on each bar and colour coding (green for UR $\leq$ 1.0,
+        red above 1.0);
+  \item the same palette and font as the rest of the report, applied through
+        \code{theme.apply\_chart\_theme()}.
+\end{itemize}
+The figure is written to the temporary asset directory and embedded through
+\code{theme.figure()}, so the report remains self-contained when the temporary
+directory is cleaned up.
+
+\section{5. Material quantity charts}
+
+Chapter 7 was rewritten on top of \code{theme.longtable()} and now ends with a
+\emph{Material Quantity Visualisation} section containing two charts:
+\begin{itemize}
+  \item steel tonnage per element (girders, cross bracing, end diaphragms, shear
+        studs) --- only elements with a calculated tonnage are plotted;
+  \item deck concrete volume ($\mathrm{m}^3$) and reinforcement steel weight (MT)
+        as a paired bar chart.
+\end{itemize}
+Both are generated at report time into the temporary asset directory and embedded
+as PNG, so no manual chart files are required. Because the BOQ calculation is the
+single source of the plotted numbers, the charts and Table 7.1 always agree.
+
+\section{6. Centralized formatting module}
+
+\code{theme.py} is now the only place that knows about visual style. It exposes:
+\begin{itemize}
+  \item \code{ReportStyle} / \code{PageGeometry} / \code{TableStyle} /
+        \code{HeaderFooterStyle} dataclasses with the palette, fonts, rules and
+        spacing;
+  \item builders \code{preamble()}, \code{longtable()}, \code{figure()},
+        \code{table\_padding()};
+  \item document passes \code{repeat\_longtable\_headers()} and
+        \code{flatten\_breakable\_multirows()};
+  \item \code{apply\_chart\_theme()}, which configures Matplotlib so figures use the
+        report's fonts and colours.
+\end{itemize}
+Chapter modules now import formatting from \code{theme} and contain only content.
+All per-chapter \code{\textbackslash setlength}, \code{\textbackslash renewcommand}
+and \code{\textbackslash captionsetup} calls were removed or redirected through the
+theme helpers.
+
+\section{Verification}
+
+Both PDFs were compiled with the same TeX Live installation (TeX Live 2026,
+\code{pdflatex}, three passes) from the same dataset.
+
+\begin{center}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Metric} & \textbf{Before} & \textbf{After} \\
+\midrule
+LaTeX errors (\code{!} lines in log)          & 138 & 0 \\
+Overfull box warnings (hbox + vbox)            & 61  & 0 \\
+Pages (incl. unnumbered title page)            & 48  & 47 \\
+Longtables with a repeating head               & 2 / 49 & 51 / 51 \\
+Tables continuing headerless                   & yes & no \\
+Content overlapping the footer box             & yes & 0 pages (bbox scan) \\
+Utilization-ratio chart                        & absent & present (Sec.~5.5, 4 elements) \\
+Material-quantity charts                       & absent & present (Ch.~7) \\
+Vehicle LL unit column                         & absent & present \\
+Per-chapter hard-coded spacing commands        & 6 files & 0 files \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The after build is clean: zero overfull boxes (horizontal or vertical) and zero
+LaTeX errors. The 138 errors in the before run were fatal
+table-construction errors (\code{Misplaced \textbackslash omit},
+\code{Misplaced \textbackslash noalign}, \code{Extra alignment tab}) caused by
+\code{\textbackslash caption} rows that were not terminated with
+\code{\textbackslash\textbackslash}; those rows are now emitted by
+\code{theme.longtable()} with correct termination.
+
+\section{How the PDFs were produced}
+
+\begin{verbatim}
+# after (this branch)
+python tools/report_demo/generate_demo_report.py --out out --stem Report_After
+
+# before (pristine checkout of d74f56d, same dataset)
+git worktree add ../baseline d74f56d
+cp -r tools/report_demo ../baseline/tools/
+python ../baseline/tools/report_demo/generate_demo_report.py \
+       --out out --stem Report_Before
+\end{verbatim}
+
+Each run writes both the \code{.tex} source and the compiled \code{.pdf}. The runner
+reports LaTeX errors by scanning the log, so a regression fails loudly instead of
+producing a silently broken PDF.
+
+\section{Additional defects found and fixed}
+
+While verifying the six requirements, four further defects surfaced. They are
+listed separately because the task did not name them.
+
+\subsection*{Braking force always reported as ``N/A''}
+
+\code{IRC6\_2017.cl\_211\_2\_braking\_force()} referenced
+\code{braking\_force\_2} before assigning it whenever the bridge had one or two
+traffic lanes, raising \code{UnboundLocalError}; the report caught the exception
+and printed ``N/A''. The function also returned newtons labelled as tonnes. Both
+are fixed: the terms are initialised to zero, wheel loads (stored in newtons) are
+converted to tonnes, and additional lanes accumulate their 5\,\% share. The
+report now shows 108.69\,kN for the two-lane demo bridge. The function had no
+other callers, so no design result changes.
+
+\subsection*{``Page X of Y'' footer lagging by one}
+
+The \code{lastpage} label is written when the final page is shipped, so it
+trapped the page count as it was before the closing page break and printed
+``of 50'' in a 51-page file. The generator now runs three passes and the label
+is written explicitly on the true last page. The references page also uses
+\code{\textbackslash chapter*}, which silently switches to the plain page style;
+it now restores the report page style, so the final page carries the same header
+and footer as the rest of the document.
+
+\subsection*{Chapter 7 quantities were placeholders}
+
+The BOQ returned ``N.A.'' for every steel item because the demo dataset lacked
+the section keys the calculator reads. The dataset was completed, and end
+diaphragm tonnage --- previously not computed at all --- is now derived in
+\code{boq\_generator.py} from the transverse-bracing section and geometry
+(two frames per bay, two diagonals and two chords each). The Chapter 7 table and
+the steel chart therefore show the same, computed number.
+
+\subsection*{Utilization summary inflated by slenderness}
+
+The KL/r check was being averaged into the cross-bracing utilization ratio even
+though it is not a demand/capacity ratio. Slenderness rows are now excluded from
+the chart while remaining in the detailed table.
+
+\section{Structure of the central style module}
+
+\begin{verbatim}
+theme.py
+|-- PALETTE, SERIES_COLORS, apply_chart_theme()
+|-- PageGeometry      paper, margins, head height, footskip
+|-- TableStyle        font size, colsep, arraystretch, rule widths,
+|                     needspace threshold, caption placement
+|-- HeaderFooterStyle left/right header text, footer text, rule colour
+|-- ReportStyle       font size, line stretch, title/heading fonts
+|-- preamble()        emits the complete LaTeX preamble from the above
+|-- longtable()       colspec + head/body/foot blocks + caption + note
+|-- figure()          [H] float, caption, width, centring
+|-- table_padding()   tight-padding helper for wide numeric tables
+|-- repeat_longtable_headers()   document-level header pass
+|-- flatten_breakable_multirows() page-break-safe group labels
+`-- vspace macros      chaptergap / sectiongap / tightgap / ...
+\end{verbatim}
+
+Chapters reference only these names: no chapter file contains a literal
+\code{\textbackslash vspace}, \code{\textbackslash setlength},
+\code{\textbackslash renewcommand} or \code{\textbackslash captionsetup} any more.
+
+\section{Known limitations}
+
+\begin{itemize}
+  \item End-diaphragm steel tonnage is not produced by the current BOQ calculation
+        (it has no diaphragm geometry inputs), so the chart plots it only when the
+        key is present. The chart code already supports the category.
+  \item The demo PDFs use a synthetic dataset and an inert OpenSees stub; they
+        exercise the report generator, not the finite-element solver.
+  \item The report generator assembles LaTeX with string builders rather than
+        PyLaTeX objects; \code{theme.longtable()} provides the equivalent structured
+        API (column spec, head/foot blocks, caption handling) without a dependency
+        change.
+\end{itemize}
+
+\end{document}

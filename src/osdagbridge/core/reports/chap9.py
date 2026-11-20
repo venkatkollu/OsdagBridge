@@ -1,6 +1,9 @@
 def references():
     return r"""
 \chapter*{References}
+% \chapter* switches to the plain page style; restore the report header and
+% footer so the final page matches every other page.
+\thispagestyle{main}
 \addcontentsline{toc}{chapter}{References}
 
 

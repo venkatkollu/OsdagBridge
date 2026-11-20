@@ -107,9 +107,11 @@ def _fig_embed(path, caption, width=r'\textwidth', height=None):
                 r'\caption*{\small ' + caption + '}\n'
                 r'\vspace{-0.5em}' + '\n'
                 r'\end{figure}')
-    # fbox placeholder — matches template exactly
+    # fbox placeholder — matches template exactly.  The closing \par keeps
+    # consecutive placeholders in separate paragraphs; without it TeX packs
+    # two 0.97\textwidth boxes onto one line and reports a massive overfull.
     return (r'\noindent\fbox{\parbox{0.97\textwidth}{' + '\n'
             r'\textit{[ PLACEHOLDER: ' + caption + r' ]}' + '\n'
-            r'}}')
+            r'}}\par\smallgap')
 
 
